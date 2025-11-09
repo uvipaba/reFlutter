@@ -1,6 +1,7 @@
 name: Build
 
 on:
+  workflow_dispatch:  # Allows manual trigger
   pull_request:
     branches:
       - "*"
