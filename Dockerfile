@@ -104,13 +104,11 @@ ENTRYPOINT ["/bin/bash", "-c", "set -e && \
   if [ -f engine/src/out/android_release_arm64/lib.stripped/libflutter.so ]; then \
     cp engine/src/out/android_release_arm64/lib.stripped/libflutter.so /t/libflutter_arm64.so && \
     echo '✅ SUCCESS! libflutter_arm64.so created' && \
-    ls -lh /t/libflutter_arm64.so; \
+    ls -lh /t/libflutter_arm64.so && \
+    echo '=== Build complete! ==='; \
   else \
     echo '❌ ERROR: libflutter.so not found' && \
     exit 1; \
-  fi && \
-  \
-  echo '=== Build complete! ===' && \
-  tail -f /dev/null"]
+  fi"]
 
 CMD ["bash"]
