@@ -1,0 +1,116 @@
+name: Docker Build
+
+on:
+  workflow_dispatch:  # Manual trigger
+    inputs:
+      snapshot_hash:
+        description: 'Snapshot Hash'
+        required: true
+        default: 'd91c0e6f35f0eb2e44124e8f42aa44a7'
+      engine_commit:
+        description: 'Engine Commit'
+        required: true
+        default: 'cf56914b326edb0ccb123ffdc60f00060bd513fa'
+      build_arm64:
+        description: 'Build ARM64'
+        type: boolean
+        default: true
+      build_arm:
+        description: 'Build ARM'
+        type: boolean
+        default: false
+      build_x64:
+        description: 'Build x64'
+        type: boolean
+        default: false
+  pull_request:
+    branches:
+      - "*"
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest  # Changed from macos-14 to ubuntu
+    
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+      
+      - name: Set variables
+        run: |
+          # Use workflow inputs if triggered manually, otherwise use SNAPSHOT_HASH file
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "SNAPSHOT_HASH=${{ github.event.inputs.snapshot_hash }}" >> $GITHUB_ENV
+            echo "ENGINE_COMMIT=${{ github.event.inputs.engine_commit }}" >> $GITHUB_ENV
+            echo "BUILD_ARM64=${{ github.event.inputs.build_arm64 }}" >> $GITHUB_ENV
+            echo "BUILD_ARM=${{ github.event.inputs.build_arm }}" >> $GITHUB_ENV
+            echo "BUILD_X64=${{ github.event.inputs.build_x64 }}" >> $GITHUB_ENV
+          else
+            HASH=$(cat SNAPSHOT_HASH 2>/dev/null || echo "d91c0e6f35f0eb2e44124e8f42aa44a7")
+            echo "SNAPSHOT_HASH=$HASH" >> $GITHUB_ENV
+            echo "ENGINE_COMMIT=cf56914b326edb0ccb123ffdc60f00060bd513fa" >> $GITHUB_ENV
+            echo "BUILD_ARM64=true" >> $GITHUB_ENV
+            echo "BUILD_ARM=false" >> $GITHUB_ENV
+            echo "BUILD_X64=false" >> $GITHUB_ENV
+          fi
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Build Docker image
+        run: |
+          docker build -t reflutter -f Dockerfile .
+      
+      - name: Run Docker build
+        run: |
+          # Set architecture flags
+          ARM64_FLAG=${{ env.BUILD_ARM64 == 'true' && 'arm64-v8a' || '0' }}
+          ARM_FLAG=${{ env.BUILD_ARM == 'true' && 'armeabi-v7a' || '0' }}
+          X64_FLAG=${{ env.BUILD_X64 == 'true' && 'x86_64' || '0' }}
+          
+          echo "Building with ARM64=$ARM64_FLAG ARM=$ARM_FLAG X64=$X64_FLAG"
+          
+          docker run \
+            -e WAIT=300 \
+            -e arm64=$ARM64_FLAG \
+            -e arm=$ARM_FLAG \
+            -e x64=$X64_FLAG \
+            -e HASH_PATCH=${{ env.SNAPSHOT_HASH }} \
+            -e COMMIT=${{ env.ENGINE_COMMIT }} \
+            --rm \
+            -v $PWD:/t \
+            reflutter
+      
+      - name: Verify built files
+        run: |
+          echo "Checking for built files..."
+          ls -lh *.so 2>/dev/null || echo "No .so files found"
+      
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: patched-engines-${{ env.SNAPSHOT_HASH }}
+          path: |
+            *.so
+          retention-days: 30
+      
+      - name: Create Release (if manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: docker-build-${{ env.SNAPSHOT_HASH }}
+          name: Docker Build - ${{ env.SNAPSHOT_HASH }}
+          body: |
+            Patched Flutter engines built via Docker
+            
+            **Build Configuration:**
+            - Snapshot Hash: ${{ env.SNAPSHOT_HASH }}
+            - Engine Commit: ${{ env.ENGINE_COMMIT }}
+            - ARM64: ${{ env.BUILD_ARM64 }}
+            - ARM: ${{ env.BUILD_ARM }}
+            - x64: ${{ env.BUILD_X64 }}
+          files: |
+            *.so
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
