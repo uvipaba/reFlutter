@@ -35,6 +35,29 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
       
+      - name: Free up disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          
+          # Remove unnecessary software to free up ~30GB
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+          
+          # Remove large packages
+          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # Remove docker images
+          docker rmi $(docker image ls -aq) || true
+          
+          echo "Disk space after cleanup:"
+          df -h
+      
       - name: Set variables
         run: |
           # Use workflow inputs if triggered manually, otherwise use SNAPSHOT_HASH file
@@ -60,20 +83,12 @@ jobs:
         run: |
           docker build -t reflutter -f Dockerfile .
       
-      - name: Run Docker build
+      - name: Run Docker build (ARM64 only)
         run: |
-          # Set architecture flags
-          ARM64_FLAG=${{ env.BUILD_ARM64 == 'true' && 'arm64-v8a' || '0' }}
-          ARM_FLAG=${{ env.BUILD_ARM == 'true' && 'armeabi-v7a' || '0' }}
-          X64_FLAG=${{ env.BUILD_X64 == 'true' && 'x86_64' || '0' }}
-          
-          echo "Building with ARM64=$ARM64_FLAG ARM=$ARM_FLAG X64=$X64_FLAG"
+          echo "Building ARM64 only to save disk space"
           
           docker run \
-            -e WAIT=300 \
-            -e arm64=$ARM64_FLAG \
-            -e arm=$ARM_FLAG \
-            -e x64=$X64_FLAG \
+            -e WAIT=10 \
             -e HASH_PATCH=${{ env.SNAPSHOT_HASH }} \
             -e COMMIT=${{ env.ENGINE_COMMIT }} \
             --rm \
