@@ -47,13 +47,13 @@ jobs:
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           
-          # Remove large packages
-          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-cloud-sdk hhvm google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri
+          # Remove large packages (ignore errors if not installed)
+          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-chrome-stable firefox powershell mono-devel libgl1-mesa-dri 2>/dev/null || true
           sudo apt-get autoremove -y
           sudo apt-get clean
           
           # Remove docker images
-          docker rmi $(docker image ls -aq) || true
+          docker rmi $(docker image ls -aq) 2>/dev/null || true
           
           echo "Disk space after cleanup:"
           df -h
@@ -97,15 +97,20 @@ jobs:
       
       - name: Verify built files
         run: |
-          echo "Checking for built files..."
-          ls -lh *.so 2>/dev/null || echo "No .so files found"
+          echo "Checking for ARM64 library..."
+          if [ -f libflutter_arm64.so ]; then
+            ls -lh libflutter_arm64.so
+            echo "✅ ARM64 build successful!"
+          else
+            echo "❌ ARM64 build failed - file not found"
+            exit 1
+          fi
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: patched-engines-${{ env.SNAPSHOT_HASH }}
-          path: |
-            *.so
+          name: libflutter-arm64-${{ env.SNAPSHOT_HASH }}
+          path: libflutter_arm64.so
           retention-days: 30
       
       - name: Create Release (if manual trigger)
@@ -115,16 +120,18 @@ jobs:
           tag_name: docker-build-${{ env.SNAPSHOT_HASH }}
           name: Docker Build - ${{ env.SNAPSHOT_HASH }}
           body: |
-            Patched Flutter engines built via Docker
+            Patched Flutter engine (ARM64 only) built via Docker
             
             **Build Configuration:**
             - Snapshot Hash: ${{ env.SNAPSHOT_HASH }}
             - Engine Commit: ${{ env.ENGINE_COMMIT }}
-            - ARM64: ${{ env.BUILD_ARM64 }}
-            - ARM: ${{ env.BUILD_ARM }}
-            - x64: ${{ env.BUILD_X64 }}
-          files: |
-            *.so
+            - Architecture: ARM64 (arm64-v8a)
+            
+            **Usage:**
+            ```bash
+            reflutter your-app.apk
+            ```
+          files: libflutter_arm64.so
           draft: false
           prerelease: false
         env:
